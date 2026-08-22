@@ -1,0 +1,30 @@
+# Vault data -- never commit real vaults
+*.kpsf
+*.vault
+*.kpsf.bak
+backups/
+session/
+*.session
+
+# Config may contain local paths; keep it out of the repo
+.keepsafe.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS noise
+Thumbs.db
+.DS_Store
