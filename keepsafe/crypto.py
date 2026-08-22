@@ -27,6 +27,7 @@ Construction (see FORMAT.md for the on-disk layout):
 from __future__ import annotations
 
 import hmac
+import unicodedata
 
 from argon2.exceptions import Argon2Error
 from argon2.low_level import Type, hash_secret_raw
@@ -50,6 +51,15 @@ DEFAULT_PARALLELISM = 4
 MIN_MEMORY_KIB = 65536  # policy floor for shipped defaults, not for tests
 MIN_ITERATIONS = 3
 MIN_PARALLELISM = 1
+
+# Upper bounds applied to parameters read from an UNTRUSTED vault header,
+# before authentication succeeds. A hostile or corrupt header must not be
+# able to demand gigabytes of RAM or hours of CPU from every unlock
+# attempt. Generous relative to any sane configuration (the defaults sit
+# far below), but hard enough to turn a crafted header into a clean error.
+MAX_MEMORY_KIB = 2_097_152  # 2 GiB
+MAX_ITERATIONS = 32
+MAX_PARALLELISM = 64
 
 
 class CryptoError(Exception):
@@ -100,13 +110,15 @@ def get_default_kdf_params() -> dict:
     }
 
 
-def _require_int(name: str, value: object, minimum: int) -> int:
+def _require_int(name: str, value: object, minimum: int, maximum: int) -> int:
     # bool is an int subclass; treating True as iterations=1 would hide a
     # bug, so it is rejected explicitly.
     if isinstance(value, bool) or not isinstance(value, int):
         raise InvalidParameters(f"{name} must be an int")
-    if value < minimum:
-        raise InvalidParameters(f"{name} must be >= {minimum}")
+    if value < minimum or value > maximum:
+        raise InvalidParameters(
+            f"{name} must be between {minimum} and {maximum}"
+        )
     return value
 
 
@@ -129,23 +141,33 @@ def derive_key(
 ) -> bytes:
     """Derive a KEY_SIZE-byte key from a passphrase using Argon2id.
 
-    str passphrases are UTF-8 encoded before hashing. salt must be
-    exactly SALT_SIZE bytes; memory_kib/iterations/parallelism must be
-    ints >= 1. Any failure of the underlying library is re-raised as
-    InvalidParameters so callers handle exactly two error types:
-    InvalidParameters for bad input, AuthenticationFailure for decryption.
+    str passphrases are Unicode-normalized (NFKC) and then UTF-8 encoded
+    before hashing, so the same logical passphrase entered under NFC or
+    NFD input methods derives the same key. bytes passphrases are hashed
+    exactly as given. salt must be exactly SALT_SIZE bytes;
+    memory_kib/iterations/parallelism must be ints within the MIN_/MAX_
+    bounds - these arrive from an untrusted file header on unlock, so
+    absurd values are rejected before the KDF runs. An empty passphrase
+    is rejected: it can only indicate an upstream prompt bug. Any failure
+    of the underlying library is re-raised as InvalidParameters so
+    callers handle exactly two error types: InvalidParameters for bad
+    input, AuthenticationFailure for decryption.
     """
     if isinstance(passphrase, str):
-        secret = passphrase.encode("utf-8")
+        if passphrase == "":
+            raise InvalidParameters("passphrase must not be empty")
+        secret = unicodedata.normalize("NFKC", passphrase).encode("utf-8")
     elif isinstance(passphrase, (bytes, bytearray, memoryview)):
         secret = bytes(passphrase)
+        if secret == b"":
+            raise InvalidParameters("passphrase must not be empty")
     else:
         raise InvalidParameters("passphrase must be str or bytes")
 
     _require_exact_length("salt", salt, SALT_SIZE)
-    _require_int("memory_kib", memory_kib, 1)
-    _require_int("iterations", iterations, 1)
-    _require_int("parallelism", parallelism, 1)
+    _require_int("memory_kib", memory_kib, 1, MAX_MEMORY_KIB)
+    _require_int("iterations", iterations, 1, MAX_ITERATIONS)
+    _require_int("parallelism", parallelism, 1, MAX_PARALLELISM)
 
     try:
         return hash_secret_raw(
@@ -159,6 +181,19 @@ def derive_key(
         )
     except Argon2Error as exc:
         raise InvalidParameters(f"key derivation rejected: {exc}") from exc
+
+
+def seal(key: bytes, plaintext: bytes, aad: bytes) -> tuple:
+    """Generate a fresh nonce and encrypt in one call.
+
+    Returns ``(nonce, ciphertext_with_tag)``. This is the safe default
+    path for callers that do not already hold a nonce: freshness is
+    handled here and cannot be forgotten. The raw ``encrypt`` remains
+    for the format layer, which stores the nonce at a fixed header
+    offset rather than prefixing it.
+    """
+    nonce = generate_nonce()
+    return nonce, encrypt(key, nonce, plaintext, aad)
 
 
 def encrypt(key: bytes, nonce: bytes, plaintext: bytes, aad: bytes) -> bytes:

@@ -74,13 +74,19 @@ Payload plaintext is UTF-8 JSON:
 
 Defaults shipped in v1 (policy constants in `keepsafe/crypto.py`):
 
-| param        | default | policy minimum |
-|--------------|---------|----------------|
-| memory_kib   | 65536   | 65536 (64 MiB) |
-| iterations   | 3       | 3              |
-| parallelism  | 4       | 1              |
-| salt         | 32 B    | 16 B           |
-| key length   | 32 B    | fixed          |
+| param        | default | policy minimum | hard maximum (untrusted header) |
+|--------------|---------|----------------|---------------------------------|
+| memory_kib   | 65536   | 65536 (64 MiB) | 2097152 (2 GiB)                 |
+| iterations   | 3       | 3              | 32                              |
+| parallelism  | 4       | 1              | 64                              |
+| salt         | 32 B    | 16 B           | fixed at 32 B                   |
+| key length   | 32 B    | fixed          | fixed                           |
+
+Parameters arrive from the plaintext header before authentication succeeds,
+so readers enforce the hard maximum and refuse absurd values with a clean
+error instead of attempting a multi-gigabyte derivation. Passphrases given
+as text are Unicode-normalized to NFKC then UTF-8 encoded before hashing;
+NFC and NFD input therefore derive the same key.
 
 A test asserts the shipped defaults meet or exceed the policy minimums so
 they cannot be silently lowered. Tests that need speed pass small parameters

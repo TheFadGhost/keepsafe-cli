@@ -179,8 +179,8 @@ def test_nonces_unique_across_500_encryptions():
         n = crypto.generate_nonce()
         nonces.append(n)
         ciphertexts.append(crypto.encrypt(k, n, PLAINTEXT, AAD))
-    assert len(nonces) >= 500
     assert len(set(nonces)) == len(nonces), "nonce collision within 500 draws"
+    assert len(ciphertexts) == 500
     assert all(len(n) == crypto.NONCE_SIZE for n in nonces)
 
 
@@ -211,7 +211,7 @@ def test_different_kdf_parameters_yield_distinct_keys():
         "more-lanes": derive(1024, 1, 2),
     }
     distinct = {bytes(v) for v in variants.values()}
-    assert len(distinct) >= 3, f"expected >=3 distinct keys, got {len(distinct)}"
+    assert len(distinct) == 4, f"expected 4 distinct keys, got {len(distinct)}"
     baseline = variants["baseline"]
     for name, variant in variants.items():
         if name != "baseline":
@@ -239,6 +239,13 @@ def test_different_salt_or_passphrase_changes_key():
 # ---------------------------------------------------------------------------
 
 def test_shipped_defaults_meet_policy():
+    # Literals are pinned so a simultaneous lowering of default and floor
+    # cannot pass silently; the >= forms guard the relationship as well.
+    assert crypto.DEFAULT_MEMORY_KIB == 65536
+    assert crypto.DEFAULT_ITERATIONS == 3
+    assert crypto.DEFAULT_PARALLELISM == 4
+    assert crypto.MIN_MEMORY_KIB == 65536
+    assert crypto.MIN_ITERATIONS == 3
     assert crypto.DEFAULT_MEMORY_KIB >= crypto.MIN_MEMORY_KIB
     assert crypto.DEFAULT_ITERATIONS >= crypto.MIN_ITERATIONS
     assert crypto.DEFAULT_PARALLELISM >= crypto.MIN_PARALLELISM
@@ -473,3 +480,66 @@ def test_generate_salt_and_nonce_sizes():
     nonces = {crypto.generate_nonce() for _ in range(20)}
     assert len(salts) == 20
     assert len(nonces) == 20
+
+
+# ---------------------------------------------------------------------------
+# 8. Review hardening: untrusted-header bounds, normalization, seal()
+# ---------------------------------------------------------------------------
+
+def test_kdf_parameters_above_hard_maximum_rejected():
+    salt = crypto.generate_salt()
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.derive_key(PASSPHRASE, salt, memory_kib=crypto.MAX_MEMORY_KIB + 1,
+                          iterations=1, parallelism=1)
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.derive_key(PASSPHRASE, salt, memory_kib=1024,
+                          iterations=crypto.MAX_ITERATIONS + 1, parallelism=1)
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.derive_key(PASSPHRASE, salt, memory_kib=1024,
+                          iterations=1, parallelism=crypto.MAX_PARALLELISM + 1)
+    # Boundary values inside the caps are accepted (tiny derivation).
+    crypto.derive_key(PASSPHRASE, salt, memory_kib=1024,
+                      iterations=crypto.MAX_ITERATIONS - 1, parallelism=1)
+
+
+def test_passphrase_unicode_normalization_nfc_equals_nfd():
+    salt = crypto.generate_salt()
+    nfc = "cafe\u0301"          # decomposed: e + combining acute
+    nfd = "\u00e9"              # precomposed: e-acute is NFC; swap roles
+    # Build a string that genuinely differs between NFC and NFD:
+    decomposed = "e\u0301"      # NFD form of e-acute
+    precomposed = "\u00e9"      # NFC form
+    assert decomposed != precomposed
+    k1 = crypto.derive_key(decomposed, salt, **FAST)
+    k2 = crypto.derive_key(precomposed, salt, **FAST)
+    assert k1 == k2, "NFC and NFD spellings must derive the same key"
+    # And the unrelated strings still differ:
+    assert crypto.derive_key(nfc, salt, **FAST) != crypto.derive_key(nfd, salt, **FAST)
+
+
+def test_empty_passphrase_rejected():
+    salt = crypto.generate_salt()
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.derive_key("", salt, **FAST)
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.derive_key(b"", salt, **FAST)
+
+
+def test_seal_generates_fresh_nonce_and_round_trips():
+    k = fast_key()
+    seen_nonces = set()
+    for _ in range(20):
+        n, ct = crypto.seal(k, PLAINTEXT, AAD)
+        assert len(n) == crypto.NONCE_SIZE
+        assert n not in seen_nonces, "seal reused a nonce"
+        seen_nonces.add(n)
+        assert crypto.decrypt(k, n, ct, AAD) == PLAINTEXT
+
+
+def test_decrypt_rejects_wrong_nonce_size():
+    k = fast_key()
+    n, ct = crypto.seal(k, PLAINTEXT, AAD)
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.decrypt(k, n[:-1], ct, AAD)
+    with pytest.raises(crypto.InvalidParameters):
+        crypto.decrypt(k, n + b"\x00", ct, AAD)
