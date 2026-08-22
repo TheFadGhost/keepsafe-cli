@@ -212,13 +212,13 @@ small embedded common-password list. Everything local.
 ## Session
 
 unlock derives the key once and keeps it only in a helper process memory,
-behind a named pipe guarded by a random per-session token stored with
-user-only permissions. Default idle timeout 15 minutes (configurable);
-lock ends it immediately; status reports remaining time without exposing
-the key. Honest trade-off, stated in help and README: while unlocked, any
-process running as your user can ask the session to decrypt, and memory
-inspection of the helper could reveal the key. The default timeout is
-deliberately short.
+behind a loopback-only endpoint guarded by a random per-session token
+stored with user-only permissions. Default idle timeout 15 minutes
+(configurable); lock ends it immediately; status reports remaining time
+without exposing the key. Honest trade-off, stated in help and README:
+while unlocked, any process running as your user can read the token file
+and ask the session to decrypt, and memory inspection of the helper could
+reveal the key. The default timeout is deliberately short.
 
 ## Clipboard
 
