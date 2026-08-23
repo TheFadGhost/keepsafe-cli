@@ -50,6 +50,12 @@ class VaultTooNew(KeepsafeError):
     exit_code = 2
 
 
+class NotAKeepsafeVault(KeepsafeError):
+    """The file exists but its magic bytes are not a Keepsafe vault."""
+
+    exit_code = 2
+
+
 class NotMatched(KeepsafeError):
     """No entry matched the requested name or query."""
 
@@ -69,3 +75,12 @@ class InternalError(KeepsafeError):
     """An unexpected internal condition. Output is sanitized upstream."""
 
     exit_code = 10
+
+
+class AbortedByUser(KeepsafeError):
+    """The user declined a confirmation or interrupted a prompt.
+
+    Nothing was changed, so this is not an error: exit code 0.
+    """
+
+    exit_code = 0
