@@ -22,12 +22,18 @@ def _read_hidden(label: str) -> str:
         return getpass_fn(label)
     except EOFError:
         raise AbortedByUserEOF() from None
+    except StopIteration:
+        # A scripted/exhausted input stream means the user could not
+        # answer; treat it exactly like a closed stdin.
+        raise AbortedByUserEOF() from None
 
 
 def _read_visible(label: str) -> str:
     try:
         return input_fn(label)
     except EOFError:
+        raise AbortedByUserEOF() from None
+    except StopIteration:
         raise AbortedByUserEOF() from None
 
 

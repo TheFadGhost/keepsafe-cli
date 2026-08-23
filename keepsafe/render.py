@@ -98,6 +98,17 @@ class Renderer:
     def warn(self, text: str) -> None:
         print(self.warning_line(text), file=sys.stderr)
 
+    def warn_block(self, lines) -> None:
+        """Multi-line warning: the warning word appears once, on the first
+        line; continuation lines are dimmed so the block reads as one
+        notice instead of a stack of repeated prefixes."""
+        lines = list(lines)
+        if not lines:
+            return
+        first = self.paint("warning", lines[0])
+        rest = [self.paint("dim", "  " + line) for line in lines[1:]]
+        print("\n".join([first] + rest), file=sys.stderr)
+
     def fail(self, text: str) -> None:
         print(self.danger_line(text), file=sys.stderr)
 

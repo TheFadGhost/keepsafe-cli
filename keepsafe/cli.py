@@ -211,10 +211,7 @@ def cmd_init(args, r, cfg) -> int:
     passphrase = prompts.ask_new_passphrase(confirm=True)
     _register_secret(passphrase)
     store.create(passphrase)
-    for line in notices.THREAT_MODEL_LINES:
-        r.warn(line)
-    r.warn("")
-    r.warn(notices.UNAUDITED_LINE)
+    r.warn_block(notices.THREAT_MODEL_LINES + [notices.UNAUDITED_LINE])
     r.warn(f"Vault created at {path}. Backups will be written to {path.parent / 'backups'}.")
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "vault": str(path)}))
