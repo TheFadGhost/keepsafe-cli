@@ -61,6 +61,11 @@ MAX_MEMORY_KIB = 2_097_152  # 2 GiB
 MAX_ITERATIONS = 32
 MAX_PARALLELISM = 64
 
+# Joint bound: individually legal parameters could still multiply out to an
+# enormous total cost (max memory x max iterations). The product is capped
+# as well; the shipped defaults (65536 x 3) sit far below it.
+MAX_COMBINED_KIB_ITERATIONS = 4_194_304
+
 
 class CryptoError(Exception):
     """Base class for every error raised by this module."""
@@ -168,6 +173,11 @@ def derive_key(
     _require_int("memory_kib", memory_kib, 1, MAX_MEMORY_KIB)
     _require_int("iterations", iterations, 1, MAX_ITERATIONS)
     _require_int("parallelism", parallelism, 1, MAX_PARALLELISM)
+    if memory_kib * iterations > MAX_COMBINED_KIB_ITERATIONS:
+        raise InvalidParameters(
+            "memory x iterations exceeds the combined cost cap "
+            f"({MAX_COMBINED_KIB_ITERATIONS})"
+        )
 
     try:
         return hash_secret_raw(

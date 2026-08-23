@@ -122,10 +122,19 @@ class TestInit:
 
     def test_mismatched_confirmation_writes_nothing(self, monkeypatch, capsys, home):
         code, out, err = run_cli(monkeypatch, capsys, ["init"],
-                                 hidden=[PASS, "different-pass"])
+                                 hidden=[PASS, "different-pass",
+                                         PASS, "different-pass"])
         assert code == 4
         assert "did not match" in err.lower()
         assert not (home / "vault.kpsf").exists()
+
+    def test_mismatch_retry_offers_second_attempt(self, monkeypatch, capsys, home):
+        # First pair mismatches ("did not match, try again"), second pair
+        # matches -> init succeeds.
+        code, out, err = run_cli(monkeypatch, capsys, ["init"],
+                                 hidden=[PASS, "nope-1", PASS, PASS])
+        assert code == 0
+        assert "try again" in err.lower()
 
     def test_missing_vault_message(self, monkeypatch, capsys, home):
         code, out, err = run_cli(monkeypatch, capsys, ["list"])
@@ -252,8 +261,8 @@ class TestCrud:
                                  ["list", "--output", "json"])
         doc = json_out(out)
         assert doc["ok"] is True
-        assert all(e.get("secret") == "********" or "secret" in e
-                   for e in doc["entries"])
+        assert all("secret" not in e for e in doc["entries"]), \
+            "machine output must omit secret keys unless explicitly included"
         assert "jsonsecret-xyz" not in out
 
     def test_json_include_secrets_warns_and_includes(self, monkeypatch, capsys, home):
@@ -308,10 +317,10 @@ class TestMutations:
         code, out, err = run_cli(monkeypatch, capsys,
                                  ["add", "gen/1", "--generate", "--gen-length", "24"])
         assert code == 0
-        assert "Generated secret:" in err
-        generated_line = [l for l in err.splitlines() if "Generated secret:" in l][0]
-        value = generated_line.split("Generated secret:", 1)[1].strip()
+        value = [l for l in out.splitlines() if l.strip()][1]
         assert len(value) == 24
+        assert value not in err, "generated secret must not be styled as a warning"
+        assert "Estimated strength" in err
         # The stored secret equals the generated one:
         code, out, err = run_cli(monkeypatch, capsys, ["get", "gen/1", "-p"], hidden=[PASS])
         assert out.strip() == value
@@ -370,7 +379,7 @@ class TestTransfer:
         assert target.exists()
         text = target.read_text(encoding="utf-8")
         assert "exported-secret-1" in text
-        assert "PLAINTEXT secrets" in err
+        assert "plaintext secrets" in err
 
     def test_export_redacted_contains_no_secrets(self, monkeypatch, capsys, home, tmp_path):
         init_vault(monkeypatch, capsys)
@@ -661,3 +670,120 @@ class TestOutputDiscipline:
     def test_no_command_shows_help_exit_4(self, monkeypatch, capsys, home):
         code, out, err = run_cli(monkeypatch, capsys, [])
         assert code == 4
+
+
+# ---------------------------------------------------------------------------
+# Audit round-1 regressions: each test pins one fixed defect
+# ---------------------------------------------------------------------------
+
+class TestAuditRegressions:
+    def test_init_force_replaces_vault(self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        hidden_feed = [PASS, PASS]
+        code, out, err = run_cli(monkeypatch, capsys, ["init", "--force"],
+                                 hidden=hidden_feed, visible=["y"])
+        assert code == 0, err
+        assert "Backup of the replaced file" in err
+
+    def test_export_refuses_vault_path_as_target(self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        seed_entry(monkeypatch, capsys, "x/1", "vault-destroyer-1")
+        vpath = home / "vault.kpsf"
+        blob_before = vpath.read_bytes()
+        code, out, err = run_cli(monkeypatch, capsys,
+                                 ["export", str(vpath), "--force"],
+                                 visible=["export-plaintext"])
+        assert code == 4
+        assert "vault file itself" in err
+        assert vpath.read_bytes() == blob_before, "vault was overwritten"
+
+    def test_invalid_entry_name_is_usage_error_not_traceback(
+            self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        code, out, err = run_cli(monkeypatch, capsys, ["add", "bad\\name"],
+                                 hidden=[PASS, "s"])
+        assert code == 4
+        assert "Traceback" not in err
+        code, _, err = run_cli(monkeypatch, capsys, ["add", "../escape"],
+                               hidden=[PASS, "s"])
+        assert code == 4
+        assert "Traceback" not in err
+
+    def test_timeout_flag_bounds(self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        seed_entry(monkeypatch, capsys, "t/b", "s")
+        code, _, err = run_cli(monkeypatch, capsys,
+                               ["get", "t/b", "-p", "--timeout", "-5"])
+        assert code == 4
+        code, _, _ = run_cli(monkeypatch, capsys,
+                             ["get", "t/b", "-p", "--timeout", "999999999"])
+        assert code == 4
+
+    def test_import_non_utf8_file_is_usage_error(self, monkeypatch, capsys,
+                                                 home, tmp_path):
+        init_vault(monkeypatch, capsys)
+        f = tmp_path / "latin.csv"
+        f.write_bytes(
+            b"name,url,username,password\ncaf\xe9,x,u,p\xe9ssword\n"
+        )
+        code, out, err = run_cli(monkeypatch, capsys, ["import", str(f)])
+        assert code == 4
+        assert "UTF-8" in err
+        assert "Traceback" not in err
+
+    def test_unknown_flag_exits_4_not_2(self, monkeypatch, capsys, home):
+        from keepsafe import errors
+        import keepsafe.cli as cli
+        with pytest.raises(errors.UsageError):
+            cli.build_parser().parse_args(["list", "--definitely-not-a-flag"])
+
+    def test_single_backup_per_mutation_with_notice(self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        seed_entry(monkeypatch, capsys, "b/1", "s")
+        backups_dir = home / "backups"
+        before = len(list(backups_dir.glob("*.bak.kpsf")))
+        code, out, err = run_cli(monkeypatch, capsys,
+                                 ["edit", "b/1", "--username", "z"])
+        assert code == 0
+        after = len(list(backups_dir.glob("*.bak.kpsf")))
+        assert after == before + 1, "one mutation must create exactly one backup"
+        assert "Backup of the previous file:" in err
+
+    def test_generated_secret_json_gated_behind_include_secrets(
+            self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        code, out, err = run_cli(monkeypatch, capsys,
+                                 ["--output", "json", "add", "g/1",
+                                  "--generate", "--gen-length", "20"])
+        doc = json_out(out)
+        assert "generated_secret" not in doc
+        code, out, err = run_cli(monkeypatch, capsys,
+                                 ["--output", "json", "add", "g/2",
+                                  "--generate", "--gen-length", "20",
+                                  "--include-secrets"])
+        doc = json_out(out)
+        assert "generated_secret" in doc
+        assert "explicit request" in err
+
+    def test_add_force_decline_changes_nothing(self, monkeypatch, capsys, home):
+        init_vault(monkeypatch, capsys)
+        seed_entry(monkeypatch, capsys, "dup/entry", "original-secret-9")
+        code, out, err = run_cli(monkeypatch, capsys,
+                                 ["add", "dup/entry", "--force"],
+                                 visible=["n"], hidden=[PASS])
+        assert code == 0
+        assert "nothing was changed" in err.lower()
+
+    def test_session_nonce_op_gives_fresh_values(self, monkeypatch, capsys, home):
+        # The write path takes server-fresh nonces; the op exists and never
+        # repeats within a short burst.
+        import keepsafe.session as session
+        token = bytes(range(32))
+        server = session.SessionServer(b"k" * 32, token, idle_timeout=900.0)
+        seen = set()
+        for _ in range(10):
+            resp = server.handle_request_dict({"op": "nonce", "token": token.hex()})
+            assert resp["ok"]
+            nonce = resp["data"]["nonce_b64"]
+            assert nonce not in seen
+            seen.add(nonce)

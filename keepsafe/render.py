@@ -20,19 +20,21 @@ import unicodedata
 MASK = "********"
 RESET = "\x1b[0m"
 REDACTED = "[redacted]"
+# Warning is deliberately NOT bold: danger is bold, so the two states
+# differ in weight as well as hue (deuteranopia rule, DESIGN.md).
 THEMES = {
     "dark": {
         "accent": "\x1b[36m",
         "dim": "\x1b[90m",
         "success": "\x1b[32m",
-        "warning": "\x1b[33m\x1b[1m",
+        "warning": "\x1b[33m",
         "danger": "\x1b[31m\x1b[1m",
     },
     "light": {
         "accent": "\x1b[34m",
         "dim": "\x1b[90m",
         "success": "\x1b[32m",
-        "warning": "\x1b[33m\x1b[1m",
+        "warning": "\x1b[33m",
         "danger": "\x1b[35m\x1b[1m",
     },
 }
@@ -73,14 +75,21 @@ class Renderer:
         self.use_color = should_use_color(no_color_flag, self.stream)
 
     def paint(self, token: str, text: str) -> str:
-        """Wrap text in the token's escape codes, or apply the plain
-        word for success/warning/danger; accent/dim pass through in
-        plain mode because they are structure, not semantics."""
+        """Wrap text in the token's escape codes. success/warning/danger
+        ALWAYS carry their literal word as well - in colour mode too -
+        because hue must never be the only carrier of meaning
+        (deuteranopia rule). In plain mode accent passes through and dim
+        wraps the text in parentheses (the documented plain form for
+        metadata)."""
         if self.use_color:
-            return self.theme[token] + text + RESET
+            word = PLAIN_WORDS.get(token)
+            body = f"{word} {text}" if word else text
+            return self.theme[token] + body + RESET
         word = PLAIN_WORDS.get(token)
         if word is not None:
             return word + " " + text
+        if token == "dim":
+            return f"({text})"
         return text
 
     def success_line(self, text: str) -> str:
@@ -100,13 +109,16 @@ class Renderer:
 
     def warn_block(self, lines) -> None:
         """Multi-line warning: the warning word appears once, on the first
-        line; continuation lines are dimmed so the block reads as one
-        notice instead of a stack of repeated prefixes."""
+        line; continuation lines are indented so the block reads as one
+        notice instead of a stack of repeated prefixes. (Indentation is
+        applied directly rather than via paint('dim') so plain mode does
+        not wrap continuation lines in parentheses.)"""
         lines = list(lines)
         if not lines:
             return
         first = self.paint("warning", lines[0])
-        rest = [self.paint("dim", "  " + line) for line in lines[1:]]
+        rest = [f"  {line}" if not self.use_color else
+                f"{self.theme['dim']}  {line}{RESET}" for line in lines[1:]]
         print("\n".join([first] + rest), file=sys.stderr)
 
     def fail(self, text: str) -> None:

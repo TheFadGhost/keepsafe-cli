@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -117,11 +118,13 @@ def _write_via_session(ctx: _Ctx, payload: dict):
     import dataclasses
 
     plaintext = fmt.serialize_payload(payload)
-    # The nonce lives inside the header and the header is the AAD, so we
-    # choose it here, pack the complete header with it, and hand both to
-    # the session (which holds the key but never sees plaintext unbound
-    # from its header).
-    nonce = crypto.generate_nonce()
+    # The nonce lives inside the header and the header is the AAD, so it
+    # must exist before those bytes are assembled. We take a server-fresh
+    # value rather than choosing one ourselves.
+    resp = ctx.client.request("nonce")
+    if not resp.get("ok"):
+        raise errors.Unavailable("the session refused the write; run 'keepsafe unlock' again")
+    nonce = base64.b64decode(resp["data"]["nonce_b64"])
     new_header = dataclasses.replace(ctx.header, nonce=nonce)
     header_bytes = fmt.pack_header(new_header, payload_len=len(plaintext) + crypto.TAG_SIZE)
     resp = ctx.client.request(
@@ -133,8 +136,9 @@ def _write_via_session(ctx: _Ctx, payload: dict):
     if not resp.get("ok"):
         raise errors.Unavailable("the session refused the write; run 'keepsafe unlock' again")
     ct = base64.b64decode(resp["data"]["ct_b64"])
-    storage.backup_current(ctx.path, ctx.store.backup_count)
+    backup = storage.backup_current(ctx.path, ctx.store.backup_count)
     storage.atomic_write_bytes(ctx.path, bytes(header_bytes) + ct)
+    return backup
 
 
 def open_unlocked(args, cfg, r, need_write: bool = False) -> _Ctx:
@@ -160,22 +164,28 @@ def open_unlocked(args, cfg, r, need_write: bool = False) -> _Ctx:
     header, key, payload = fmt.open_vault_file_with_key(blob, passphrase)
     entries = model.entries_from_payload(payload)
     _register_secrets(entries)
-    return _Ctx(store, path, header=header, key=key, payload=payload)
+    # bytearray so the finally-block zeroization reaches the actual buffer
+    # (CPython cannot promise copies never existed; see crypto.zeroize).
+    return _Ctx(store, path, header=header, key=bytearray(key), payload=payload)
 
 
-def save_ctx(ctx: _Ctx, entries: list) -> None:
-    """Persist entries with an automatic encrypted backup first."""
+def save_ctx(ctx: _Ctx, entries: list):
+    """Persist entries with an automatic encrypted backup first.
+
+    Returns the BackupInfo for the pre-write copy (None when the vault did
+    not exist yet), so commands can tell the user where the backup went.
+    """
     payload = model.payload_from_entries(entries)
     if ctx.client is not None:
-        _write_via_session(ctx, payload)
-        return
+        return _write_via_session(ctx, payload)
     try:
-        ctx.store.save(ctx.key, ctx.header.salt, ctx.header.params, payload)
+        info = ctx.store.save(ctx.key, ctx.header.salt, ctx.header.params, payload)
+        return info
     finally:
-        if ctx.key is not None:
+        key = getattr(ctx, "key", None)
+        if key is not None:
             try:
-                buf = bytearray(ctx.key)
-                crypto.zeroize(buf)
+                crypto.zeroize(key)
             except Exception:
                 pass
 
@@ -186,7 +196,20 @@ def _warn_include_secrets(r, args) -> None:
 
 
 def _json_entry(entry, include_secrets: bool) -> dict:
-    return entry.to_dict() if include_secrets else entry.redacted_dict()
+    """Machine-readable form. Secret keys are OMITTED (not masked) unless
+    explicitly included - the fixed mask is for human output."""
+    if include_secrets:
+        return entry.to_dict()
+    doc = entry.redacted_dict()
+    doc.pop("secret", None)
+    cleaned_fields = []
+    for f in doc.get("fields", []):
+        if f.get("secret"):
+            cleaned_fields.append({"key": f["key"], "secret": True})
+        else:
+            cleaned_fields.append(f)
+    doc["fields"] = cleaned_fields
+    return doc
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +233,14 @@ def cmd_init(args, r, cfg) -> int:
             )
     passphrase = prompts.ask_new_passphrase(confirm=True)
     _register_secret(passphrase)
-    store.create(passphrase)
+    store.create(passphrase, force=args.force)
     r.warn_block(notices.THREAT_MODEL_LINES + [notices.UNAUDITED_LINE])
-    r.warn(f"Vault created at {path}. Backups will be written to {path.parent / 'backups'}.")
+    backup_note = ""
+    if args.force:
+        backups = store.backups()
+        if backups:
+            backup_note = f" Backup of the replaced file: {backups[0].path}."
+    r.warn(f"Vault created at {path}. Backups will be written to {path.parent / 'backups'}.{backup_note}")
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "vault": str(path)}))
     else:
@@ -232,9 +260,15 @@ def cmd_add(args, r, cfg) -> int:
     entries = ctx.entries_sorted()
     existing = {e.name for e in entries}
     name = model.validate_path(args.name)
-    if name in existing and not args.force:
+    old = next((e for e in entries if e.name == name), None)
+    replaced = old is not None
+    if replaced and not args.force:
         raise errors.UsageError(f"an entry named '{name}' already exists; use edit, or add --force to replace")
-    replaced = name in existing
+    if replaced:
+        r.warn(f"'{name}' already exists and will be REPLACED. A backup of the "
+               "current vault is written first; the existing secret is kept unless --new-secret is given.")
+        if not prompts.ask_yes_no("Replace it?", default=False):
+            raise errors.AbortedByUser("Aborted; nothing was changed.")
 
     username = args.username if args.username is not None else ""
     url = args.url if args.url is not None else ""
@@ -251,20 +285,19 @@ def cmd_add(args, r, cfg) -> int:
         if args.template not in TEMPLATES:
             raise errors.UsageError(f"unknown template '{args.template}'; known: {', '.join(sorted(TEMPLATES))}")
         have = {f.key for f in fields}
-        for key, secret in TEMPLATES[args.template]:
+        for key, secret_flag in TEMPLATES[args.template]:
             if key not in have:
-                if secret:
+                if secret_flag:
                     val = prompts.ask_secret_value(key)
                 else:
                     val = prompts.ask_optional_visible(f"{key} (optional)")
-                fields.append(model.Field(key=key, value=val, secret=secret))
+                fields.append(model.Field(key=key, value=val, secret=secret_flag))
 
     if args.generate:
         secret = generate.gen_password(
             length=args.gen_length, symbols=args.symbols, exclude_similar=args.exclude_similar)
         generated = secret
     elif replaced and not args.new_secret:
-        old = next(e for e in entries if e.name == name)
         secret = old.secret
         generated = None
     else:
@@ -273,34 +306,39 @@ def cmd_add(args, r, cfg) -> int:
     _register_secret(secret)
 
     if replaced:
-        old = next(e for e in entries if e.name == name)
         entry = model.Entry(name=name, username=username or old.username,
                             url=url or old.url, notes=notes or old.notes,
                             tags=tags or old.tags, created=old.created,
                             updated=model.utc_now_iso(), fields=fields or old.fields)
         entry.secret = secret
-        r.warn(f"Replacing existing entry '{name}'. A backup was written first.")
-        storage.backup_current(ctx.path, ctx.store.backup_count)
     else:
         entry = model.Entry(name=name, username=username, secret=secret, url=url,
                             notes=notes, tags=tags, fields=fields)
     entries = [e for e in entries if e.name != name]
     entries.append(entry)
     entries.sort(key=lambda e: e.name)
-    save_ctx(ctx, entries)
+    info = save_ctx(ctx, entries)
 
     if args.output_mode == "json":
         out = {"ok": True, "name": name, "replaced": replaced}
-        if generated is not None:
+        if generated is not None and getattr(args, "include_secrets", False):
+            _warn_include_secrets(r, args)
             out["generated_secret"] = generated
         print(render.machine_json(out))
     else:
         verb = "Replaced" if replaced else "Added"
         r.say(f"{verb} entry '{name}'")
+        if info is not None:
+            r.warn(f"Backup of the previous file: {info.path}")
         if generated is not None:
-            bits = generate.entropy_bits_password(len(generated), 62)
-            r.warn(f"Generated secret: {generated}")
-            r.warn(f"Strength estimate: {generate.describe_strength(bits)} (estimate, not a guarantee)")
+            bits = generate.entropy_bits_password(
+                len(generated), generate.pool_size(symbols=args.symbols,
+                                                   exclude_similar=args.exclude_similar))
+            # stdout: generation results are sanctioned output (DESIGN.md);
+            # the strength estimate goes to stderr and names no value.
+            r.say(generated)
+            r.warn(f"Estimated strength: {bits:.0f} bits - "
+                   f"{generate.describe_strength(bits)} (estimate, not a guarantee)")
     return 0
 
 
@@ -350,24 +388,25 @@ def _copy_flow(r, cfg, value: str, label: str, args, json_value_name: str) -> in
     if not args.no_copy:
         try:
             copied = bool(clipboard.copy_text(value))
-        except errors.KeepsafeError:
-            if args.print:
+        except errors.Unavailable:
+            # DESIGN.md: no clipboard mechanism -> exit code 5 with the
+            # remedy named. --print is the documented alternative.
+            if args.print or getattr(args, "raw", False):
                 raise
-            copied = False
+            raise errors.Unavailable(
+                "no clipboard mechanism is available on this platform; "
+                "use --print to display the value instead"
+            ) from None
         if copied:
             clipboard.schedule_clear(clipboard.sha256_hex(value), timeout)
     if copied:
         r.warn(f"Copied to clipboard. Clears automatically in {timeout} s.")
-    else:
-        if not args.no_copy and not args.print:
-            r.warn("Clipboard is not available on this platform; nothing was copied. Use --print to display the value instead.")
     if args.output_mode == "json":
         doc = {"ok": True, "name": label, "copied_to_clipboard": copied,
                "clipboard_clear_seconds": timeout if copied else None}
         print(render.machine_json(doc))
     else:
-        shown = value if args.print else render.MASK
-        r.say(f"{label}: {shown}" if not copied else f"{label}: {render.MASK}")
+        r.say(f"{label}: {render.MASK}")
     return 0
 
 
@@ -477,15 +516,16 @@ def cmd_edit(args, r, cfg) -> int:
             _register_secret(entry.secret)
     entry.touch()
     _register_secrets([entry])
-    storage.backup_current(ctx.path, ctx.store.backup_count)
     entries = [e for e in entries if e.name != entry.name]
     entries.append(entry)
     entries.sort(key=lambda e: e.name)
-    save_ctx(ctx, entries)
+    info = save_ctx(ctx, entries)
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "name": entry.name,
                                    "changed": sorted(set(changed))}))
     else:
+        if info is not None:
+            r.warn(f"Backup of the previous file: {info.path}")
         r.say(f"Updated '{entry.name}' ({', '.join(sorted(set(changed)))})")
     return 0
 
@@ -511,12 +551,13 @@ def cmd_rm(args, r, cfg) -> int:
     ]
     if not prompts.confirm_phrase(lines, entry.name):
         raise errors.AbortedByUser("Aborted; nothing was deleted.")
-    storage.backup_current(ctx.path, ctx.store.backup_count)
     remaining = [e for e in ctx.entries if e.name != entry.name]
-    save_ctx(ctx, remaining)
+    info = save_ctx(ctx, remaining)
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "deleted": entry.name}))
     else:
+        if info is not None:
+            r.warn(f"Backup of the previous file: {info.path}")
         r.say(f"Deleted '{entry.name}'")
     return 0
 
@@ -544,7 +585,6 @@ def _move(args, r, cfg, rename_only: bool) -> int:
     clash = next((e for e in entries if e.name == dst), None)
     if clash is not None and not args.force:
         raise errors.UsageError(f"an entry named '{dst}' already exists; use --force to replace it")
-    storage.backup_current(ctx.path, ctx.store.backup_count)
     remaining = [e for e in entries if e.name not in (src.name,)]
     moved = model.Entry(name=dst, username=src.username, secret=src.secret,
                         url=src.url, notes=src.notes, tags=list(src.tags),
@@ -556,10 +596,12 @@ def _move(args, r, cfg, rename_only: bool) -> int:
         r.warn(f"Replacing existing entry '{dst}'.")
     remaining.append(moved)
     remaining.sort(key=lambda e: e.name)
-    save_ctx(ctx, remaining)
+    info = save_ctx(ctx, remaining)
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "from": src.name, "to": dst}))
     else:
+        if info is not None:
+            r.warn(f"Backup of the previous file: {info.path}")
         r.say(f"Moved '{src.name}' to '{dst}'" if not rename_only else f"Renamed '{src.name}' to '{dst}'")
     return 0
 
@@ -601,11 +643,19 @@ def cmd_gen(args, r, cfg) -> int:
 
 
 def cmd_import_file(args, r, cfg) -> int:
-    ctx = open_unlocked(args, cfg, r, )
+    # Read and validate the source BEFORE asking for a passphrase: a bad
+    # path or undecodable file should not cost an Argon2 run first.
     source = Path(args.file)
     if not source.is_file():
         raise errors.UsageError(f"no such file: {source}")
-    text = source.read_text(encoding="utf-8-sig")
+    try:
+        text = source.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise errors.UsageError(
+            f"{source} is not valid UTF-8; re-export or re-save it as UTF-8 "
+            f"and try again ({exc.reason} at byte {exc.start})"
+        ) from None
+    ctx = open_unlocked(args, cfg, r)
     fmt_name = args.format or transfer.sniff_format(text)
     incoming = transfer.parse_import(text, fmt_name)
     entries = ctx.entries_sorted()
@@ -622,8 +672,8 @@ def cmd_import_file(args, r, cfg) -> int:
     if plan.overwrite and not args.overwrite:
         raise errors.InternalError("overwrite plan without --overwrite; this is a bug")
     if plan.overwrite:
-        r.warn(f"This import would REPLACE {len(plan.overwrite)} existing entr"
-               f"{'y' if len(plan.overwrite) == 1 else 'ies'}. A backup is written first.")
+        r.warn(f"This import would replace {len(plan.overwrite)} existing "
+               f"{'entry' if len(plan.overwrite) == 1 else 'entries'}. A backup of the current vault is written first.")
         if not prompts.ask_yes_no("Proceed with the import?", default=False):
             raise errors.AbortedByUser("Aborted; nothing was imported.")
     by_name = {e.name: e for e in entries}
@@ -631,10 +681,11 @@ def cmd_import_file(args, r, cfg) -> int:
         by_name[e.name] = e
     merged = sorted(by_name.values(), key=lambda e: e.name)
     _register_secrets(merged)
-    storage.backup_current(ctx.path, ctx.store.backup_count)
-    save_ctx(ctx, merged)
+    info = save_ctx(ctx, merged)
     for line in report:
         r.warn(line)
+    if info is not None and args.output_mode != "json":
+        r.warn(f"Backup of the previous file: {info.path}")
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "added": len(plan.add),
                                    "overwritten": len(plan.overwrite),
@@ -643,10 +694,20 @@ def cmd_import_file(args, r, cfg) -> int:
 
 
 def cmd_export(args, r, cfg) -> int:
-    ctx = open_unlocked(args, cfg, r)
+    path = _resolve_vault_path(args, cfg)
     target = Path(args.file)
+    # Never write plaintext over (or onto the same file as) the encrypted
+    # vault. Resolve both sides so tricks like "..", different case on
+    # Windows, or relative paths cannot sneak past.
+    def _norm(p: Path) -> str:
+        return str(Path(os.path.abspath(str(p)))).lower() if os.name == "nt" else str(Path(os.path.abspath(str(p))))
+    if _norm(target) == _norm(path):
+        raise errors.UsageError(
+            "the export target is the vault file itself; choose a different path - exporting would overwrite the encrypted vault with plaintext"
+        )
     if target.exists() and not args.force:
         raise errors.UsageError(f"{target} already exists; choose another file or use --force to overwrite")
+    ctx = open_unlocked(args, cfg, r)
     fmt_name = args.format
     if fmt_name is None:
         ext = target.suffix.lower()
@@ -666,7 +727,7 @@ def cmd_export(args, r, cfg) -> int:
             raise errors.AbortedByUser("Aborted; no file was written.")
     else:
         if not prompts.ask_yes_no(
-                f"Write a REDACTED export (no secret values) to {target}?", default=False):
+                f"Write a redacted export (no secret values) to {target}?", default=False):
             raise errors.AbortedByUser("Aborted; no file was written.")
     entries = ctx.entries_sorted()
     text = transfer.export_entries(entries, fmt_name, include_secrets=include_secrets)
@@ -678,8 +739,23 @@ def cmd_export(args, r, cfg) -> int:
         r.say(f"Wrote {len(entries)} entries to {target} ({fmt_name}"
               f"{', redacted' if not include_secrets else ''})")
         if include_secrets:
-            r.warn("warning: that file contains PLAINTEXT secrets. Delete it securely when done.")
+            r.warn("that file contains plaintext secrets; delete it securely when done.")
     return 0
+
+
+def _bounded_int(flag: str, minimum: int, maximum: int):
+    """argparse type= callback producing a bounded, validated int."""
+
+    def convert(value: str) -> int:
+        try:
+            n = int(value)
+        except ValueError:
+            raise errors.UsageError(f"{flag} expects an integer") from None
+        if n < minimum or n > maximum:
+            raise errors.UsageError(f"{flag} must be between {minimum} and {maximum}")
+        return n
+
+    return convert
 
 
 def _parse_positive_int(value: str, flag: str) -> int:
@@ -709,6 +785,11 @@ def cmd_rekey(args, r, cfg) -> int:
                        crypto.DEFAULT_PARALLELISM, crypto.MIN_PARALLELISM)
     r.warn(f"Current KDF parameters: {old_params.memory_kib} KiB x{old_params.iterations} x{old_params.parallelism}")
     r.warn(f"New KDF parameters:     {new_mem} KiB x{new_it} x{new_par}")
+    if new_mem * new_it > crypto.MAX_COMBINED_KIB_ITERATIONS:
+        raise errors.UsageError(
+            "--kdf-memory x --kdf-iterations exceeds the combined cost cap "
+            f"({crypto.MAX_COMBINED_KIB_ITERATIONS}); lower one of them"
+        )
     if not prompts.confirm_phrase(notices.rekey_lines(), "rekey"):
         raise errors.AbortedByUser("Aborted; the vault was not changed.")
     old_pass = prompts.ask_passphrase(str(path))
@@ -731,8 +812,13 @@ def cmd_rekey(args, r, cfg) -> int:
 def _kdf_arg(flag_value, name, current, shipped_default, minimum):
     if flag_value is not None:
         n = _parse_positive_int(flag_value, f"--kdf-{name}")
+        maximum = {"memory": crypto.MAX_MEMORY_KIB,
+                   "iterations": crypto.MAX_ITERATIONS,
+                   "parallelism": crypto.MAX_PARALLELISM}[name]
         if n < minimum:
             raise errors.UsageError(f"--kdf-{name} below the policy minimum of {minimum} would weaken the vault; refused")
+        if n > maximum:
+            raise errors.UsageError(f"--kdf-{name} above the hard maximum of {maximum}; refused")
         return n
     return max(current, shipped_default)
 
@@ -766,8 +852,10 @@ def cmd_audit(args, r, cfg) -> int:
         print(render.machine_json({
             "ok": True,
             "counts": report.counts,
+            # exit code is 1 when any finding exists (see --help)
             "weak": [{"name": f.name, "detail": f.detail} for f in report.weak],
-            "reused": [{"names": f.name, "detail": f.detail} for f in report.reused],
+            "reused": [{"names": [n.strip() for n in f.name.split(",") if n.strip() and n.strip() != "..."],
+                        "detail": f.detail} for f in report.reused],
             "stale": [{"name": f.name, "detail": f.detail} for f in report.stale],
             "missing_username": [f.name for f in report.missing_username],
             "missing_url": [f.name for f in report.missing_url],
@@ -798,12 +886,14 @@ def cmd_unlock(args, r, cfg) -> int:
     passphrase = prompts.ask_passphrase(str(path))
     _register_secret(passphrase)
     blob = store.read_bytes()
-    fmt.open_vault_file(blob, passphrase)  # verifies before spawning anything
-    header = fmt.parse_header(blob)
-    key = crypto.derive_key(passphrase, header.salt, header.params.memory_kib,
-                            header.params.iterations, header.params.parallelism)
+    # One derivation proves the passphrase AND yields the key for the session.
+    header, key, _payload = fmt.open_vault_file_with_key(blob, passphrase)
     timeout = cfg["session_timeout"]
-    info = session.unlock_session(path, key, timeout)
+    info = session.unlock_session(path, bytes(key), timeout)
+    try:
+        crypto.zeroize(key)
+    except Exception:
+        pass
     r.warn(notices.session_tradeoff_line())
     if args.output_mode == "json":
         print(render.machine_json({"ok": True, "already_unlocked": False,
@@ -907,14 +997,33 @@ def _add_output_flags(sp: argparse.ArgumentParser) -> None:
                     help="include secret values in machine-readable output (explicitly requested only)")
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse whose usage errors follow the Keepsafe taxonomy.
+
+    Default argparse exits 2 on bad usage - the same code as an unlock
+    failure - which would make a typo'd flag script-indistinguishable
+    from a wrong passphrase. Usage problems are exit 4 here.
+    """
+
+    def error(self, message):  # noqa: D401 - argparse API
+        raise errors.UsageError(message)
+
+    def exit(self, status=0, message=None):
+        # --help/--version raise SystemExit(0); anything non-zero from
+        # argparse is a usage problem and maps to exit 4.
+        if status:
+            raise errors.UsageError((message or "usage error").strip())
+        raise SystemExit(status)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = _Parser(
         prog=PROG,
         description="Unaudited local encrypted secrets vault: one passphrase-protected file.",
         epilog=(
-            "THREAT MODEL (short form; see README for the full statement):\n"
+            "Threat model (short form; see README for the full statement):\n"
             "Protects the vault file at rest against someone who obtains the file\n"
-            "but not your passphrase. Does NOT protect against a compromised\n"
+            "but not your passphrase. Does not protect against a compromised\n"
             "machine, keyloggers, memory inspection, clipboard snooping by other\n"
             "applications, or an unlocked session.\n\n"
             + notices.UNAUDITED_LINE + "\n"
@@ -941,8 +1050,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
 
     def add_sub(name, help_text=None, **kwargs):
-        kwargs.pop("help", None)
-        sp = sub.add_parser(name, help=help_text, parents=[common], **kwargs)
+        if help_text is not None:
+            kwargs["help"] = help_text
+        sp = sub.add_parser(name, parents=[common], **kwargs)
         return sp
 
     sp = add_sub("init", "create a new vault")
@@ -959,11 +1069,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="non-secret custom field (value visible in shell history; use --template or edit for secret fields)")
     sp.add_argument("--template", choices=tuple(sorted(TEMPLATES)), help="prefill suggested fields via prompts")
     sp.add_argument("--generate", action="store_true", help="generate the main secret instead of prompting")
-    sp.add_argument("--gen-length", type=int, default=20)
+    sp.add_argument("--gen-length", type=_bounded_int("--gen-length", 4, 256), default=20)
     sp.add_argument("--symbols", action="store_true", help="with --generate: include symbols")
     sp.add_argument("--exclude-similar", action="store_true", help="with --generate: avoid look-alike characters")
     sp.add_argument("--new-secret", action="store_true", help="with add --force: prompt for a fresh secret instead of keeping the old")
     sp.add_argument("--force", action="store_true", help="replace an existing entry of the same name")
+    _add_output_flags(sp)
     sp.set_defaults(fn=cmd_add)
 
     sp = add_sub("get", help="copy an entry's secret to the clipboard (never prints without --print)")
@@ -971,7 +1082,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("-p", "--print", dest="print", action="store_true", help="print the value to stdout instead of copying")
     sp.add_argument("--raw", action="store_true", help="with --print: no trailing newline")
     sp.add_argument("--field", metavar="KEY", help="operate on a custom field instead of the main secret")
-    sp.add_argument("--timeout", type=int, default=None, metavar="SECONDS", help="clipboard auto-clear timeout override")
+    sp.add_argument("--timeout", type=_bounded_int("--timeout", 1, 86400), default=None, metavar="SECONDS", help="clipboard auto-clear timeout override (1-86400)")
     sp.add_argument("--no-copy", action="store_true", help="skip the clipboard entirely")
     _add_output_flags(sp)
     sp.set_defaults(fn=cmd_get)
@@ -1028,7 +1139,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--words", type=int, default=None, metavar="N", help="passphrase mode: N words from the EFF short list")
     sp.add_argument("--sep", default="-", help="passphrase separator (1-3 printable characters)")
     sp.add_argument("--capitalize", action="store_true", help="capitalize passphrase words")
-    sp.add_argument("--count", type=int, default=1)
+    sp.add_argument("--count", type=_bounded_int("--count", 1, 100), default=1)
     sp.add_argument("--copy", action="store_true", help="copy the single result to the clipboard (auto-clears)")
     sp.set_defaults(fn=cmd_gen)
 
@@ -1055,7 +1166,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add_sub("changepass", help="change the passphrase (KDF parameters unchanged)")
     sp.set_defaults(fn=cmd_changepass)
 
-    sp = add_sub("audit", help="report weak, reused, stale, incomplete entries (all local)")
+    sp = sub.add_parser("audit", help="report weak, reused, stale, incomplete entries (all local)",
+                        description="Exit code 1 when any finding exists, 0 when the vault is clean.")
     sp.add_argument("--stale-days", dest="stale_days", default=None, metavar="DAYS")
     sp.add_argument("--min-length", dest="min_length", default=None, metavar="N")
     sp.set_defaults(fn=cmd_audit)
@@ -1084,34 +1196,40 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMAND_HANDLERS = {}
-
-
 def _handler_for(args):
     return getattr(args, "fn", None)
 
 
-def _error_line(text: str) -> int:
-    r = render.Renderer(no_color_flag=True)
-    r.fail(f"error: {_sanitized(text)}")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except errors.UsageError as exc:
+        fallback = render.Renderer(no_color_flag=True)
+        fallback.fail(_sanitized(str(exc)))
+        return errors.UsageError.exit_code
     if _handler_for(args) is None:
         parser.print_help(sys.stderr)
         return 4
     try:
         cfg, warnings = config.load()
-        for w in warnings:
-            print(f"warning: {w}", file=sys.stderr)
         if args.output_mode is None:
             args.output_mode = cfg["output_mode"]
         r = render.Renderer(theme_name=cfg["color_theme"],
                             no_color_flag=bool(args.no_color), stream=sys.stdout)
+        for w in warnings:
+            r.warn(w)
         return args.fn(args, r, cfg)
+    except errors.AbortedByUser as exc:
+        # A decline is not an error: plain dim notice on stderr, exit 0.
+        try:
+            sys.stderr.flush()
+        except Exception:
+            pass
+        fallback = render.Renderer(no_color_flag=True)
+        text = str(exc) or "Aborted; nothing was changed."
+        print(fallback.paint("dim", text), file=sys.stderr)
+        return 0
     except errors.KeepsafeError as exc:
         try:
             sys.stderr.flush()
@@ -1123,7 +1241,14 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130
+    except ValueError as exc:
+        # Validation helpers (entry paths, field shapes) raise ValueError;
+        # they are user-input problems, not internal ones.
+        fallback = render.Renderer(no_color_flag=True)
+        fallback.fail(_sanitized(str(exc)))
+        return errors.UsageError.exit_code
     except Exception:
         trace = traceback.format_exc()
+        print("internal error:", file=sys.stderr)
         print(_sanitized(trace), file=sys.stderr)
         return errors.InternalError.exit_code

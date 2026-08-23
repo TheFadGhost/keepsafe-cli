@@ -212,11 +212,14 @@ def _parse_timestamp(text: object) -> datetime | None:
 
 
 def _display_width(text: str) -> int:
-    return sum(
-        2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
-        for char in text
-    )
+    # Single source of truth for cell widths is render.display_width
+    # (handles combining marks); kept as a thin alias for the report.
+    from .render import display_width
+
+    return display_width(text)
 
 
 def _pad(text: str, width: int) -> str:
-    return text + " " * max(width - _display_width(text), 0)
+    from .render import pad
+
+    return pad(text, width)

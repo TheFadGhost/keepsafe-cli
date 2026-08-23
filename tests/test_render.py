@@ -34,17 +34,23 @@ _EXPECTED_THEMES = {
         "accent": "\x1b[36m",
         "dim": "\x1b[90m",
         "success": "\x1b[32m",
-        "warning": "\x1b[33m\x1b[1m",
+        # Warning is deliberately NOT bold (audit fix): danger keeps the
+        # bold weight so the two states differ in weight as well as hue.
+        "warning": "\x1b[33m",
         "danger": "\x1b[31m\x1b[1m",
     },
     "light": {
         "accent": "\x1b[34m",
         "dim": "\x1b[90m",
         "success": "\x1b[32m",
-        "warning": "\x1b[33m\x1b[1m",
+        "warning": "\x1b[33m",
         "danger": "\x1b[35m\x1b[1m",
     },
 }
+
+# In colour mode the literal word is ALWAYS present next to the colour
+# (deuteranopia rule): paint() prepends it for semantic tokens.
+_COLOUR_WORDS = {"success": "ok:", "warning": "warning:", "danger": "error:"}
 
 
 class FakeTty:
@@ -117,8 +123,13 @@ def test_theme_tables_match_design_literals():
 @pytest.mark.parametrize("token", ["accent", "dim", "success", "warning", "danger"])
 def test_paint_uses_exact_escape_sequences(theme, token):
     renderer = Renderer(theme_name=theme, no_color_flag=False, stream=FakeTty())
-    expected = _EXPECTED_THEMES[theme][token] + "body" + RESET
+    word = _COLOUR_WORDS.get(token)
+    body_text = f"{word} body" if word else "body"
+    expected = _EXPECTED_THEMES[theme][token] + body_text + RESET
     assert renderer.paint(token, "body") == expected
+    # Hue is never the only carrier: the word must be inside the codes too.
+    if word:
+        assert word in renderer.paint(token, "body")
 
 
 @pytest.mark.parametrize("theme", ["dark", "light"])
@@ -133,7 +144,8 @@ def test_paint_uses_exact_escape_sequences(theme, token):
 def test_convenience_lines_colour_mode_exact(theme, method, token):
     renderer = Renderer(theme_name=theme, no_color_flag=False, stream=FakeTty())
     code = _EXPECTED_THEMES[theme][token]
-    assert getattr(renderer, method)("text") == code + "text" + RESET
+    word = _COLOUR_WORDS[token]
+    assert getattr(renderer, method)("text") == code + f"{word} text" + RESET
 
 
 def test_unknown_theme_falls_back_to_dark_silently():
@@ -164,9 +176,10 @@ def test_plain_warning_and_danger_prefixes(plain_renderer):
     assert plain_renderer.success_line("done").startswith("ok: ")
 
 
-def test_plain_mode_accent_and_dim_pass_through_unchanged(plain_renderer):
+def test_plain_mode_accent_passes_through_and_dim_wraps_parens(plain_renderer):
     assert plain_renderer.paint("accent", "keepsafe") == "keepsafe"
-    assert plain_renderer.paint("dim", "(metadata)") == "(metadata)"
+    assert plain_renderer.paint("dim", "metadata") == "(metadata)"
+    assert plain_renderer.paint("dim", "(metadata)") == "((metadata))"
 
 
 @pytest.mark.parametrize("theme", ["dark", "light"])
@@ -427,4 +440,4 @@ def test_stderr_notices_carry_styling_under_colour_mode(monkeypatch):
     monkeypatch.setattr(sys, "stderr", buffer)
     renderer = Renderer(no_color_flag=False, stream=FakeTty())
     renderer.warn("careful")
-    assert buffer.getvalue() == "\x1b[33m\x1b[1mcareful\x1b[0m\n"
+    assert buffer.getvalue() == "\x1b[33mwarning: careful\x1b[0m\n"

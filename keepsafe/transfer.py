@@ -70,10 +70,12 @@ def sniff_format(path_or_text: str) -> str:
     """Return "json" or "csv" for a file path or literal text."""
     text = path_or_text
     try:
+        # Guard ValueError too: on POSIX a NUL byte inside a "path" raises
+        # ValueError rather than returning False.
         if os.path.isfile(path_or_text):
             with open(path_or_text, encoding="utf-8-sig", newline="") as fh:
                 text = fh.read()
-    except OSError:
+    except (OSError, ValueError):
         text = path_or_text
     stripped = text.lstrip("\ufeff \t\r\n")
     if stripped.startswith("{"):
@@ -121,11 +123,15 @@ def plan_import(
 
 
 def import_report_lines(plan: ImportPlan, source_path: str) -> list[str]:
-    """Human-readable import result lines, including the standing warning."""
+    """Human-readable import result lines, including the standing warning.
+
+    Lines are bare text WITHOUT a "warning:" prefix; the caller's renderer
+    adds styling/prefix so it is never doubled.
+    """
     return [
         plan.summary_line(),
         f"source: {source_path}",
-        "warning: the source file "
+        "the source file "
         + source_path
         + " still contains plaintext secrets; delete it securely when done.",
     ]

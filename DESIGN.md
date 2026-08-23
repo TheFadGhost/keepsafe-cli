@@ -88,8 +88,10 @@ where that backup went.
 
 ## Error taxonomy
 
-Exit codes: 0 success; 2 unlock failure; 3 nothing matched; 4 usage/config;
-5 feature unavailable on this platform; 10 internal error.
+Exit codes: 0 success (a declined confirmation is also 0); 1 audit found
+issues; 2 unlock failure or unusable vault file; 3 nothing matched;
+4 usage/config; 5 feature unavailable on this platform; 10 internal error;
+130 interrupted.
 
 - VaultMissing: "No vault found at PATH. Run: keepsafe init"
 - UnlockFailed: "Unable to unlock the vault. The passphrase may be wrong,
@@ -108,7 +110,12 @@ Exit codes: 0 success; 2 unlock failure; 3 nothing matched; 4 usage/config;
 
 No-leak rule: error text must help the user without revealing whether a
 given entry exists, whether a passphrase was partially correct (it is all
-or nothing by construction), or any part of any secret.
+or nothing by construction), or any part of any secret. The crash-path
+scrubber replaces loaded secret substrings with [redacted]; substrings
+shorter than 8 characters are exempt because they cannot be placed
+unambiguously in prose (a 1-2 character "secret" would mangle ordinary
+words while adding no protection). Short values are still never echoed,
+copied to logs, or included in any output channel.
 
 ## List and search layout
 
@@ -155,16 +162,18 @@ render.py.
 | accent  | cyan (36)        | blue (34)         | none (structure only)       |
 | dim     | bright black(90) | bright black(90)  | parentheses around metadata |
 | success | green (32)       | green (32)        | word ok:                    |
-| warning | yellow (33) bold | yellow (33) bold  | word warning:               |
+| warning | yellow (33)      | yellow (33)       | word warning:               |
 | danger  | red (31) bold    | magenta (35) bold | word error:                 |
 
 Rules:
 
 - Colour is decoration-free: this table is the entire vocabulary.
-- Danger and warning survive deuteranopia: hue is never the only carrier.
-  Both always pair colour with the literal word; dark theme separates by
-  brightness and weight as well as hue; light theme danger is magenta
-  against yellow warnings for hue-independent separation.
+- The literal word travels with the colour in EVERY mode, colour mode
+  included, so hue is never the only carrier of meaning. Warning is not
+  bold while danger is: the two states differ in weight as well as hue,
+  which keeps them distinguishable under deuteranopia even on a
+  full-colour terminal. Light-theme danger uses magenta against yellow
+  warnings for hue-independent separation.
 - NO_COLOR env var, --no-color, and non-TTY stdout all disable colour
   completely. Only 16-colour SGR codes exist anywhere; no 256-colour or
   truecolour codes.
@@ -235,3 +244,9 @@ and suggests --print.
 SIGINT and any exit path restore the terminal state; vault writes are
 atomic (temp file + rename) so a crash leaves either the old or the new
 file, never a truncated one, with the pre-write copy preserved as a backup.
+
+Concurrent writers: two simultaneous mutating commands are last-writer-
+wins and are not detected. Each writer backs up the file as it existed
+BEFORE its own write, so the other writer's result remains recoverable
+from the backup directory; this is stated in the README rather than
+hidden.

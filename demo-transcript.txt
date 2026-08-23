@@ -26,14 +26,17 @@
 --- $ keepsafe add web/github --username demo-user --url https://github.com --tags dev,web   [secret prompted hidden after the vault passphrase]
   out| Added entry 'web/github'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846460063.bak.kpsf
   => exit 0
 --- $ keepsafe add 邮件/bank --username 用户 --tags finance
   out| Added entry '邮件/bank'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846496536.bak.kpsf
   => exit 0
 --- $ keepsafe add servers/prod/api --template api-key   [template fields prompted visibly; empty answers kept]
   out| Added entry 'servers/prod/api'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846532822.bak.kpsf
   => exit 0
 
 ========================================================================
@@ -83,12 +86,12 @@
 5. gen passwords and passphrases
 ========================================================================
 --- $ keepsafe gen --length 24
-  out| nMrN91KeKEwQQKph2daRHoTK
+  out| ncxPt2T7xRYEEOoxoj38EbAu
   err| warning: Estimated strength: 143 bits - very strong (estimate, not a guarantee)
   => exit 0
 --- $ keepsafe gen --words 6 --sep + --count 2
-  out| dairy+dome+lunar+union+hump+fifty
-  out| gooey+buggy+cake+zebra+stash+sleet
+  out| lunch+fall+blob+plank+dart+rack
+  out| paper+art+prude+wake+theft+fog
   err| warning: Estimated strength: 62 bits - strong (estimate, not a guarantee)
   => exit 0
 
@@ -98,14 +101,17 @@
 --- $ keepsafe edit web/github --add-tags important
   out| Updated 'web/github' (tags)
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846794678.bak.kpsf
   => exit 0
 --- $ keepsafe mv servers/prod/api servers/staging/api
   out| Moved 'servers/prod/api' to 'servers/staging/api'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846832822.bak.kpsf
   => exit 0
 --- $ keepsafe rename servers/staging/api edge
   out| Renamed 'servers/staging/api' to 'servers/staging/edge'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846869913.bak.kpsf
   => exit 0
 
 ========================================================================
@@ -113,13 +119,13 @@
 ========================================================================
 --- $ keepsafe export C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json   [declined: no file written]
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| This will write EVERY entry, including all secret values, to 'C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json'.
+  err| This vault holds secret values; every one of them will be written to 'C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json'.
   err| The output file is plaintext: anything on this machine that can read
   err| your files will be able to read it, including backup tools and sync
   err| clients. This cannot be undone by Keepsafe.
   err| Type 'export-plaintext' (without quotes) to proceed.
   err| Did not match. 1 attempt(s) left, then this aborts.
-  err| error: Aborted; no file was written.
+  err| (Aborted; no file was written.)
   => exit 0
 --- $ keepsafe export C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json --redacted
   out| Wrote 3 entries to C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json (json, redacted)
@@ -128,12 +134,12 @@
 --- $ keepsafe export C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json --force   [typed phrase accepted]
   out| Wrote 3 entries to C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json (json)
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| This will write EVERY entry, including all secret values, to 'C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json'.
+  err| This vault holds secret values; every one of them will be written to 'C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json'.
   err| The output file is plaintext: anything on this machine that can read
   err| your files will be able to read it, including backup tools and sync
   err| clients. This cannot be undone by Keepsafe.
   err| Type 'export-plaintext' (without quotes) to proceed.
-  err| warning: warning: that file contains PLAINTEXT secrets. Delete it securely when done.
+  err| warning: that file contains plaintext secrets; delete it securely when done.
   => exit 0
 
 ========================================================================
@@ -160,7 +166,8 @@
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
   err| warning: 3 to add, 0 to overwrite, 0 skipped
   err| warning: source: C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json
-  err| warning: warning: the source file C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json still contains plaintext secrets; delete it securely when done.
+  err| warning: the source file C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json still contains plaintext secrets; delete it securely when done.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847044440.bak.kpsf
   => exit 0
 --- $ keepsafe list
   out| NAME                      USERNAME        UPDATED     TAGS
@@ -174,21 +181,21 @@
 9. audit (local only)
 ========================================================================
 --- $ keepsafe audit
-  err| error: input ended before the prompt was answered; nothing was changed
+  err| (input ended before the prompt was answered; nothing was changed)
   => exit 0
 
 ========================================================================
 10. session: unlock, status, passphrase-free get, lock
 ========================================================================
 --- $ keepsafe unlock   [one passphrase now unlocks a session]
-  err| error: input ended before the prompt was answered; nothing was changed
+  err| (input ended before the prompt was answered; nothing was changed)
   => exit 0
 --- $ keepsafe status
   out| Vault: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\vault.kpsf (present)
   out| Session: locked
   => exit 0
 --- $ keepsafe get web/github --output json   [no passphrase scripted here; session served this request]
-  err| error: input ended before the prompt was answered; nothing was changed
+  err| (input ended before the prompt was answered; nothing was changed)
   => exit 0
 --- $ keepsafe lock
   out| No unlocked session found.
@@ -206,22 +213,22 @@
   err| warning: Current KDF parameters: 65536 KiB x3 x4
   err| warning: New KDF parameters:     131072 KiB x3 x4
   err| Re-keying creates a new vault file with a new salt and KDF parameters.
-  err| Existing automatic backups stay encrypted with the OLD parameters and
-  err| open only with the OLD passphrase. Keep them until the new file is verified.
+  err| Existing automatic backups stay encrypted with the old parameters and
+  err| open only with the old passphrase. Keep them until the new file is verified.
   err| Type 'rekey' (without quotes) to proceed.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T004539536197.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847186728.bak.kpsf
   err| warning: That backup opens only with the OLD passphrase.
   => exit 0
 --- $ keepsafe restore --list
-  out| [0] 20260823T004539536197  898 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T004539536197.bak.kpsf
-  out| [1] 20260823T004539386488  126 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T004539386488.bak.kpsf
-  out| [2] 20260823T004539384489  126 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T004539384489.bak.kpsf
-  out| [3] 20260823T004539201868  896 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T004539201868.bak.kpsf
-  out| [4] 20260823T004539200365  896 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T004539200365.bak.kpsf
+  out| [0] 20260823T013847186728  898 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847186728.bak.kpsf
+  out| [1] 20260823T013847044440  126 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847044440.bak.kpsf
+  out| [2] 20260823T013846869913  896 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846869913.bak.kpsf
+  out| [3] 20260823T013846832822  890 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846832822.bak.kpsf
+  out| [4] 20260823T013846794678  878 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846794678.bak.kpsf
   => exit 0
 --- $ keepsafe restore 0   [restores pre-rekey backup (old passphrase era)]
-  out| Restored backup [0] from 20260823T004539536197
-  err| warning: The current vault will be backed up first, then replaced with the backup from 20260823T004539536197.
+  out| Restored backup [0] from 20260823T013847186728
+  err| warning: The current vault will be backed up first, then replaced with the backup from 20260823T013847186728.
   => exit 0
 
 ========================================================================
@@ -232,7 +239,7 @@
   err| error: Unable to unlock the vault. The passphrase may be wrong, or the file may be damaged or tampered with.
   => exit 2
 --- $ keepsafe rm web/github   [declined typed confirmation (EOF aborts)]
-  err| error: input ended before the prompt was answered; nothing was changed
+  err| (input ended before the prompt was answered; nothing was changed)
   => exit 0
 
 ========================================================================
@@ -264,9 +271,9 @@
   ... (6 more stdout lines)
   => exit 0
 --- --help epilog excerpt below
-  THREAT MODEL (short form; see README for the full statement):
+  Threat model (short form; see README for the full statement):
   Protects the vault file at rest against someone who obtains the file
-  but not your passphrase. Does NOT protect against a compromised
+  but not your passphrase. Does not protect against a compromised
   machine, keyloggers, memory inspection, clipboard snooping by other
   applications, or an unlocked session.
   

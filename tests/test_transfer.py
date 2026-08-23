@@ -397,7 +397,7 @@ def test_import_report_lines_contain_warning_verbatim():
     assert plan.summary_line() in lines
     assert f"source: {source}" in lines
     assert (
-        f"warning: the source file {source} still contains plaintext "
+        f"the source file {source} still contains plaintext "
         "secrets; delete it securely when done."
     ) in lines
 

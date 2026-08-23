@@ -132,7 +132,10 @@ magic, newer format version.
 - `keepsafe restore --list` enumerates backups; `keepsafe restore 0` (or
   `--latest`) restores one after backing up the current file again.
 - Writes are atomic (temporary file plus rename). A crash mid-write leaves
-  either the old or the new vault, never a truncated one.
+  either the old or the new vault, never a truncated one. Two simultaneous
+  writers are last-writer-wins and undetected; each writer backs up the
+  pre-write file first, so the other result stays recoverable from backups.
+  Run one mutating command at a time.
 - Exports are plaintext by definition. `keepsafe export` requires typing
   `export-plaintext`; use `--redacted` to omit secret values. Imports warn
   that the source file still contains plaintext secrets.

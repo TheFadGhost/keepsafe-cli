@@ -135,7 +135,10 @@ class TestMachineOutput:
         code, out, _ = run_cli(monkeypatch, capsys,
                                ["--output", "json", "list"])
         doc = json.loads(out)
-        assert all(e["secret"] != SENTINEL for e in doc["entries"])
+        assert all("secret" not in e for e in doc["entries"]), \
+            "machine output omits secret keys entirely unless requested"
+        assert all(all("value" not in f for f in e.get("fields", []) if f.get("secret"))
+                   for e in doc["entries"])
         code, out, err = run_cli(monkeypatch, capsys,
                                  ["--output", "json", "search", "sentry",
                                   "--include-secrets"])
@@ -192,9 +195,11 @@ class TestProcessSurface:
         # The CLI accepts no passphrase argument by construction; prove the
         # parser rejects one rather than silently swallowing it.
         import keepsafe.cli as cli
-        with pytest.raises(SystemExit) as excinfo:
+        from keepsafe import errors
+        with pytest.raises(errors.UsageError):
+            # Usage problems are exit 4 (UsageError), never exit 2, so a
+            # typo cannot be confused with an unlock failure.
             cli.build_parser().parse_args(["unlock", "--passphrase", PASS])
-        assert excinfo.value.code != 0
 
     def test_session_runtime_file_holds_no_key_material(self, monkeypatch, capsys, home):
         seeded_vault(monkeypatch, capsys, home)

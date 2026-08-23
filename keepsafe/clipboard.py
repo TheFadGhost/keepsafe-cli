@@ -170,11 +170,17 @@ import sys, time
 
 
 def _main():
-    if len(sys.argv) < 3:
-        return 0
-    copied_hash_hex = sys.argv[1]
+    # Handshake arrives on stdin: one line "<hash-hex> <timeout-seconds>".
     try:
-        timeout = float(sys.argv[2])
+        line = sys.stdin.readline()
+    except Exception:
+        return 0
+    parts = line.split()
+    if len(parts) != 2:
+        return 0
+    copied_hash_hex = parts[0]
+    try:
+        timeout = float(parts[1])
     except ValueError:
         return 0
     deadline = time.monotonic() + max(0.0, timeout)
@@ -203,8 +209,11 @@ def schedule_clear(copied_hash_hex: str, timeout_seconds: int):
     """Spawn the detached auto-clear helper; Popen or None (never raises).
 
     The child sleeps *timeout_seconds* in small increments, then clears
-    only if the clipboard still hashes to *copied_hash_hex*. All parent-
-    side std handles are DEVNULL, so there are no pipes to leak.
+    only if the clipboard still hashes to *copied_hash_hex*. The hash and
+    timeout are passed over the child's stdin, NOT argv: command lines are
+    readable by other processes on the machine, pipes are not (by any
+    process that was not given the handle). Parent-side stdout/stderr are
+    DEVNULL; stdin is the pipe the child reads once.
     """
     try:
         popen_kwargs = {}
@@ -213,22 +222,26 @@ def schedule_clear(copied_hash_hex: str, timeout_seconds: int):
         else:
             popen_kwargs["start_new_session"] = True
         package_parent = _package_parent()
-        return subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 sys.executable,
                 "-c",
                 CLEAR_SCRIPT_SOURCE,
-                str(copied_hash_hex),
-                str(int(timeout_seconds)),
             ],
             cwd=str(package_parent),
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             **popen_kwargs,
         )
     except Exception:
         return None
+    try:
+        proc.stdin.write(f"{copied_hash_hex} {int(timeout_seconds)}\n".encode("ascii"))
+        proc.stdin.close()
+    except Exception:
+        pass
+    return proc
 
 
 def _package_parent():

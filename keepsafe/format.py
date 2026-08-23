@@ -90,6 +90,12 @@ def pack_header(h: VaultHeader, payload_len: int = 0) -> bytes:
         raise errors.InternalError("payload_len must be an int")
     if payload_len < 0 or payload_len >= 2**64:
         raise errors.InternalError("payload_len does not fit in u64")
+    for name in ("memory_kib", "iterations", "parallelism"):
+        value = getattr(h.params, name)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise errors.InternalError(f"KDF {name} must be an int")
+        if not 0 < value < 2**32:
+            raise errors.InternalError(f"KDF {name} does not fit in u32")
 
     out = bytearray(HEADER_SIZE)
     out[_MAGIC_OFFSET:_MAGIC_OFFSET + 4] = crypto.MAGIC

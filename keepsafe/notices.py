@@ -50,7 +50,7 @@ def session_tradeoff_line() -> str:
 def plaintext_export_lines(target: str) -> list[str]:
     """STATE / EFFECT / SCOPE / COST warning shown before export."""
     return [
-        f"This will write EVERY entry, including all secret values, to '{target}'.",
+        f"This vault holds secret values; every one of them will be written to '{target}'.",
         "The output file is plaintext: anything on this machine that can read",
         "your files will be able to read it, including backup tools and sync",
         "clients. This cannot be undone by Keepsafe.",
@@ -61,7 +61,7 @@ def plaintext_export_lines(target: str) -> list[str]:
 def rekey_lines() -> list[str]:
     return [
         "Re-keying creates a new vault file with a new salt and KDF parameters.",
-        "Existing automatic backups stay encrypted with the OLD parameters and",
-        "open only with the OLD passphrase. Keep them until the new file is verified.",
+        "Existing automatic backups stay encrypted with the old parameters and",
+        "open only with the old passphrase. Keep them until the new file is verified.",
         "Type 'rekey' (without quotes) to proceed.",
     ]

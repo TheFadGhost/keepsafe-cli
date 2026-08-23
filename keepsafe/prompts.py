@@ -50,17 +50,31 @@ def ask_passphrase(vault_label: str) -> str:
 
 
 def ask_new_passphrase(confirm: bool = True) -> str:
-    """Prompt twice for a new passphrase; aborts on mismatch or empty."""
-    first = _read_hidden("New passphrase (input hidden): ")
-    if not first:
-        raise errors.UsageError("passphrase must not be empty; nothing was written")
-    if confirm:
-        second = _read_hidden("Confirm passphrase (input hidden): ")
-        if first != second:
+    """Prompt for a new passphrase, asking once more on mismatch.
+
+    On a mismatch the prompt repeats once with the wording below before
+    aborting, so one slipped keystroke does not throw away the whole
+    form. Aborts without writing anything after the retry fails.
+    """
+    attempts = 2 if confirm else 1
+    first = ""
+    for attempt in range(attempts):
+        first = _read_hidden("New passphrase (input hidden): ")
+        if not first:
             raise errors.UsageError(
-                "the two passphrases did not match; nothing was written"
+                "passphrase must not be empty; nothing was written"
             )
-    return first
+        if not confirm:
+            return first
+        second = _read_hidden("Confirm passphrase (input hidden): ")
+        if first == second:
+            return first
+        remaining = attempts - attempt - 1
+        if remaining > 0:
+            print("did not match, try again", file=sys.stderr)
+    raise errors.UsageError(
+        "the two passphrases did not match; nothing was written"
+    )
 
 
 def ask_optional_visible(label: str) -> str:

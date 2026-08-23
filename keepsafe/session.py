@@ -151,6 +151,11 @@ class SessionServer:
                 remaining = max(0, int(round(self._idle_timeout - (now - previous_activity))))
                 return {"ok": True, "data": {"remaining_seconds": remaining, "expires": True}}
             return {"ok": True, "data": {"remaining_seconds": -1, "expires": False}}
+        if op == "nonce":
+            # Server-fresh nonce for callers that must place the nonce
+            # inside AAD bytes (the vault header). Clients cannot pick
+            # specific values; they can only take fresh ones from here.
+            return {"ok": True, "data": {"nonce_b64": _b64encode(crypto.generate_nonce())}}
         if op == "seal":
             return self._op_seal(req)
         if op == "open":
@@ -366,6 +371,10 @@ def write_runtime(info: SessionInfo) -> None:
 
     atomic_write_bytes(path, data)
     try:
+        # Best effort. On POSIX this restricts the token file to the owner;
+        # on Windows it is a no-op (ACLs come from the user profile folder,
+        # which already limits access to the user and administrators). We
+        # say that plainly rather than imply a protection we do not deliver.
         os.chmod(path, 0o600)
     except OSError:
         pass
