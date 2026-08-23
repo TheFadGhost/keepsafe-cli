@@ -1,5 +1,8 @@
 # Vault data -- never commit real vaults
+# (exception: generated FAKE fixtures under tests/fixtures are committed;
+# see tools/make_fixtures.py)
 *.kpsf
+!tests/fixtures/*.kpsf
 *.vault
 *.kpsf.bak
 backups/

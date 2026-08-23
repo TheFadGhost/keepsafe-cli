@@ -1189,10 +1189,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--shell", required=True, choices=("bash", "zsh", "fish"))
     sp.set_defaults(fn=cmd_completions)
 
-    sp = add_sub("_complete", help=argparse.SUPPRESS)
-    sp.add_argument("prefix", nargs="?", default="")
-    sp.set_defaults(fn=cmd_complete)
-
     return p
 
 
@@ -1200,7 +1196,32 @@ def _handler_for(args):
     return getattr(args, "fn", None)
 
 
+def _parse_hidden_complete(argv: list[str]):
+    """The hidden entry-name completion command must not appear in --help,
+    so argparse never registers it; it is parsed here instead."""
+    sp = argparse.ArgumentParser(prog=f"{PROG} _complete", add_help=False)
+    sp.add_argument("prefix", nargs="?", default="")
+    ns = sp.parse_args(argv[1:])
+    ns.fn = cmd_complete
+    ns.vault = None
+    ns.output_mode = "text"
+    ns.no_color = False
+    return ns
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if argv and argv[0] == "_complete":
+        args = _parse_hidden_complete(argv)
+        try:
+            cfg, warnings = config.load()
+            r = render.Renderer(no_color_flag=bool(args.no_color), stream=sys.stdout)
+            return args.fn(args, r, cfg)
+        except errors.KeepsafeError as exc:
+            return exc.exit_code
+        except Exception:
+            # Completion must fail silent and clean.
+            return 0
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
