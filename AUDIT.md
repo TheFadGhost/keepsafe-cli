@@ -58,7 +58,28 @@ section at the bottom records the follow-up verdicts.
 - Threat model and unaudited notice present in README, --help epilog, and
   first-run init output.
 
-## Round 2
+## Round 2 (independent re-verification)
 
-Recorded after fixes land and the suite plus feature demonstration are
-re-run; see the bottom of this file.
+A fresh reviewer executed all 20 verification items against the fixed code:
+19 of 20 confirmed FIXED by execution; 1 PARTIAL (include-secrets banner
+still doubled its prefix) plus two adjacent minors (audit subparser missed
+the shared global-flag parent; ALL-CAPS residues in three runtime
+warnings). All four were fixed immediately. Full suite: 913 passed.
+
+## Round 3 (final gate)
+
+A third fresh pass verified the round-2 fixes and swept for residuals:
+
+| # | Severity | Finding | Disposition |
+|---|----------|---------|-------------|
+| 1 | MEDIUM | generated fixture vault was untracked (blanket *.kpsf ignore) - fresh clones would fail the regression suite | FIXED: ignore exception + fixture committed |
+| 2 | LOW | hidden _complete command leaked into --help as literal SUPPRESS text | FIXED: parsed before argparse registration, absent from help |
+| 3 | LOW | demo transcript tracked despite gitignore; scratch dirs at root | FIXED: untracked, cleaned |
+
+Post-fix state: full suite green (913 tests), feature demonstration
+transcript clean (no tracebacks, no doubled prefixes, exits exactly as
+designed), repo tree clean of artifacts.
+
+## Verdict
+
+Zero open findings across three independent audit rounds. v1.0.0 tagged.
