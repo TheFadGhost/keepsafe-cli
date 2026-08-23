@@ -1,0 +1,18 @@
+{
+  "expected_names": [
+    "example/dev/api",
+    "example/web/mail"
+  ],
+  "expected_secrets": {
+    "example/dev/api": "fake-secret-DO-NOT-USE-2",
+    "example/web/mail": "fake-secret-DO-NOT-USE-1"
+  },
+  "expected_usernames": {
+    "example/dev/api": "svc-fixture",
+    "example/web/mail": "someone@example.com"
+  },
+  "file": "vault-v1.kpsf",
+  "format_version": 1,
+  "note": "generated fake data; see FIXTURES-ARE-FAKE.txt",
+  "passphrase_is_public": "fixture-passphrase-0001"
+}

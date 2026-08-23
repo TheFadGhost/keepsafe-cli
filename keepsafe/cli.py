@@ -931,14 +931,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-color", action="store_true", help="disable colour output")
     p.add_argument("--output", choices=("text", "json"), dest="output_mode", default=None,
                    help="output mode (default: text, or config output_mode)")
-    # Shared parent so global flags also work AFTER the subcommand:
+    # Shared parent so global flags also work AFTER the subcommand.
+    # SUPPRESS defaults keep an absent subcommand flag from clobbering a
+    # value the top-level parser already set.
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--vault", metavar="PATH", default=None,
+    common.add_argument("--vault", metavar="PATH", default=argparse.SUPPRESS,
                         help=argparse.SUPPRESS)
-    common.add_argument("--no-color", action="store_true", default=False,
-                        help=argparse.SUPPRESS)
+    common.add_argument("--no-color", action="store_true",
+                        default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--output", choices=("text", "json"), dest="output_mode",
-                        default=None, help=argparse.SUPPRESS)
+                        default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
 
     def add_sub(name, help_text=None, **kwargs):
