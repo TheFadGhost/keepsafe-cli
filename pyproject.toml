@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keepsafe-cli"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Unaudited local encrypted secrets vault: one passphrase-protected file (Argon2id + XChaCha20-Poly1305 via libsodium). For personal use and learning."
 readme = "README.md"
 requires-python = ">=3.9"
