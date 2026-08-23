@@ -192,7 +192,7 @@ def save_ctx(ctx: _Ctx, entries: list):
 
 def _warn_include_secrets(r, args) -> None:
     if getattr(args, "include_secrets", False) and args.output_mode == "json":
-        r.warn("warning: secret values are included in this output at explicit request.")
+        r.warn("secret values are included in this output at explicit request.")
 
 
 def _json_entry(entry, include_secrets: bool) -> dict:
@@ -265,7 +265,7 @@ def cmd_add(args, r, cfg) -> int:
     if replaced and not args.force:
         raise errors.UsageError(f"an entry named '{name}' already exists; use edit, or add --force to replace")
     if replaced:
-        r.warn(f"'{name}' already exists and will be REPLACED. A backup of the "
+        r.warn(f"'{name}' already exists and will be replaced. A backup of the "
                "current vault is written first; the existing secret is kept unless --new-secret is given.")
         if not prompts.ask_yes_no("Replace it?", default=False):
             raise errors.AbortedByUser("Aborted; nothing was changed.")
@@ -805,7 +805,7 @@ def cmd_rekey(args, r, cfg) -> int:
     else:
         r.say(f"Re-keyed vault at {path}")
         r.warn(f"Backup of the previous file: {info.path}")
-        r.warn("That backup opens only with the OLD passphrase.")
+        r.warn("That backup opens only with the old passphrase.")
     return 0
 
 
@@ -838,7 +838,7 @@ def cmd_changepass(args, r, cfg) -> int:
         print(render.machine_json({"ok": True, "backup": str(info.path)}))
     else:
         r.say(f"Passphrase changed for {path}")
-        r.warn(f"Backup of the previous file: {info.path} (opens with the OLD passphrase)")
+        r.warn(f"Backup of the previous file: {info.path} (opens with the old passphrase)")
     return 0
 
 
@@ -1166,7 +1166,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add_sub("changepass", help="change the passphrase (KDF parameters unchanged)")
     sp.set_defaults(fn=cmd_changepass)
 
-    sp = sub.add_parser("audit", help="report weak, reused, stale, incomplete entries (all local)",
+    sp = add_sub("audit", help="report weak, reused, stale, incomplete entries (all local)",
                         description="Exit code 1 when any finding exists, 0 when the vault is clean.")
     sp.add_argument("--stale-days", dest="stale_days", default=None, metavar="DAYS")
     sp.add_argument("--min-length", dest="min_length", default=None, metavar="N")

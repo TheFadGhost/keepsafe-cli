@@ -26,17 +26,17 @@
 --- $ keepsafe add web/github --username demo-user --url https://github.com --tags dev,web   [secret prompted hidden after the vault passphrase]
   out| Added entry 'web/github'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846460063.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020158656966.bak.kpsf
   => exit 0
 --- $ keepsafe add 邮件/bank --username 用户 --tags finance
   out| Added entry '邮件/bank'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846496536.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020158745206.bak.kpsf
   => exit 0
 --- $ keepsafe add servers/prod/api --template api-key   [template fields prompted visibly; empty answers kept]
   out| Added entry 'servers/prod/api'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846532822.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020158866544.bak.kpsf
   => exit 0
 
 ========================================================================
@@ -86,12 +86,12 @@
 5. gen passwords and passphrases
 ========================================================================
 --- $ keepsafe gen --length 24
-  out| ncxPt2T7xRYEEOoxoj38EbAu
+  out| gc6kMuPwR3UjZereBjHp4KeH
   err| warning: Estimated strength: 143 bits - very strong (estimate, not a guarantee)
   => exit 0
 --- $ keepsafe gen --words 6 --sep + --count 2
-  out| lunch+fall+blob+plank+dart+rack
-  out| paper+art+prude+wake+theft+fog
+  out| deaf+juice+bribe+dust+hazy+armed
+  out| frame+swear+snort+chunk+ocean+props
   err| warning: Estimated strength: 62 bits - strong (estimate, not a guarantee)
   => exit 0
 
@@ -101,17 +101,17 @@
 --- $ keepsafe edit web/github --add-tags important
   out| Updated 'web/github' (tags)
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846794678.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020159651776.bak.kpsf
   => exit 0
 --- $ keepsafe mv servers/prod/api servers/staging/api
   out| Moved 'servers/prod/api' to 'servers/staging/api'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846832822.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020159754156.bak.kpsf
   => exit 0
 --- $ keepsafe rename servers/staging/api edge
   out| Renamed 'servers/staging/api' to 'servers/staging/edge'
   err| warning: Deriving key from passphrase (Argon2id, 64 MiB x3). This takes a moment by design.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846869913.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020159903751.bak.kpsf
   => exit 0
 
 ========================================================================
@@ -167,7 +167,7 @@
   err| warning: 3 to add, 0 to overwrite, 0 skipped
   err| warning: source: C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json
   err| warning: the source file C:\Users\Work\Documents\Free ai\keepsafe-cli\demo-export.json still contains plaintext secrets; delete it securely when done.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847044440.bak.kpsf
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020200320042.bak.kpsf
   => exit 0
 --- $ keepsafe list
   out| NAME                      USERNAME        UPDATED     TAGS
@@ -216,19 +216,19 @@
   err| Existing automatic backups stay encrypted with the old parameters and
   err| open only with the old passphrase. Keep them until the new file is verified.
   err| Type 'rekey' (without quotes) to proceed.
-  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847186728.bak.kpsf
-  err| warning: That backup opens only with the OLD passphrase.
+  err| warning: Backup of the previous file: C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020200738155.bak.kpsf
+  err| warning: That backup opens only with the old passphrase.
   => exit 0
 --- $ keepsafe restore --list
-  out| [0] 20260823T013847186728  898 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847186728.bak.kpsf
-  out| [1] 20260823T013847044440  126 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013847044440.bak.kpsf
-  out| [2] 20260823T013846869913  896 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846869913.bak.kpsf
-  out| [3] 20260823T013846832822  890 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846832822.bak.kpsf
-  out| [4] 20260823T013846794678  878 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T013846794678.bak.kpsf
+  out| [0] 20260823T020200738155  898 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020200738155.bak.kpsf
+  out| [1] 20260823T020200320042  126 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020200320042.bak.kpsf
+  out| [2] 20260823T020159903751  896 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020159903751.bak.kpsf
+  out| [3] 20260823T020159754156  890 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020159754156.bak.kpsf
+  out| [4] 20260823T020159651776  878 bytes  C:\Users\Work\Documents\Free ai\keepsafe-cli\.demo-home\backups\vault.20260823T020159651776.bak.kpsf
   => exit 0
 --- $ keepsafe restore 0   [restores pre-rekey backup (old passphrase era)]
-  out| Restored backup [0] from 20260823T013847186728
-  err| warning: The current vault will be backed up first, then replaced with the backup from 20260823T013847186728.
+  out| Restored backup [0] from 20260823T020200738155
+  err| warning: The current vault will be backed up first, then replaced with the backup from 20260823T020200738155.
   => exit 0
 
 ========================================================================

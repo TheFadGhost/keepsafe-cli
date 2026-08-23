@@ -65,7 +65,7 @@ def search(entries: list[Entry], query: str) -> list[tuple[Entry, str]]:
 
 
 def filter_tags(entries: list[Entry], tags: set[str]) -> list[Entry]:
-    """Entries carrying EVERY requested tag; comparison is exact and
+    """Entries carrying every requested tag; comparison is exact and
     therefore case-sensitive. Output is sorted by entry name."""
     required = set(tags)
     matched = [entry for entry in entries if required <= set(entry.tags)]
